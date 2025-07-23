@@ -651,15 +651,16 @@ app.get('/results', (req, res) => {
 });
 
 // Final catch‑all – MUST be the very last route
-app.get('/*', (req, res) => {
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'API endpoint not found' });
-  }
-  if (fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
-  }
-  res.status(404).json({ error: 'React app not built' });
-});
+// `/{*splat}` also matches the root path `/`
+app.get('/{*splat}', (req, res) => {
+     if (req.path.startsWith('/api')) {
+       return res.status(404).json({ error: 'API endpoint not found' });
+     }
+     if (fs.existsSync(indexPath)) {
+       return res.sendFile(indexPath);
+     }
+     res.status(404).json({ error: 'React app not built' });
+   });
 
 // 404 handler
 app.use((req, res) => {
