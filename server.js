@@ -112,6 +112,16 @@ async function analyzePage(url) {
     const h5Count = $('h5').length;
     const h6Count = $('h6').length;
     
+    // **NEW: Check heading hierarchy (no level skipping)**
+    const headingLevels = $('h1,h2,h3,h4,h5,h6').map((i, el) => +el.tagName[1]).get();
+    let hasHeadingSkip = false;
+    for (let i = 1; i < headingLevels.length; i++) {
+      if (headingLevels[i] - headingLevels[i-1] > 1) {
+        hasHeadingSkip = true;
+        break;
+      }
+    }
+    
     // Content Analysis
     const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
     const wordCount = bodyText.split(' ').filter(word => word.length > 0).length;
@@ -136,6 +146,11 @@ async function analyzePage(url) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
     
+    // **NEW: Focus keyword analysis**
+    const focusKeyword = keywordDensity[0]?.word || '';
+    const hasFocusInTitle = focusKeyword && title.toLowerCase().includes(focusKeyword);
+    const hasFocusInMeta = focusKeyword && metaDescription.toLowerCase().includes(focusKeyword);
+    
     // Images Analysis
     const images = [];
     $('img').each((i, elem) => {
@@ -153,6 +168,45 @@ async function analyzePage(url) {
     const imgCount = images.length;
     const imgWithoutAlt = images.filter(img => !img.alt).length;
     const imgWithLazyLoad = images.filter(img => img.loading === 'lazy').length;
+    
+    // **NEW: Check for oversized images (>300KB)**
+    const checkImageSize = async (imgSrc) => {
+      try {
+        const fullUrl = new URL(imgSrc, finalUrl).href;
+        const response = await axios.head(fullUrl, { timeout: 8000 });
+        const contentLength = parseInt(response.headers['content-length'] || '0');
+        return contentLength;
+      } catch (error) {
+        return 0; // Unable to determine size
+      }
+    };
+    
+    let oversizedImages = 0;
+    let imageCheckPromises = [];
+    
+    // Check first 10 images for performance
+    for (let i = 0; i < Math.min(images.length, 10); i++) {
+      const img = images[i];
+      if (img.src && img.src !== 'Missing' && !img.src.startsWith('data:')) {
+        imageCheckPromises.push(
+          checkImageSize(img.src).then(size => {
+            if (size > 300000) { // 300KB
+              oversizedImages++;
+              images[i].oversized = true;
+              images[i].size = size;
+            }
+            return size;
+          }).catch(() => 0)
+        );
+      }
+    }
+    
+    // Wait for image size checks (with timeout)
+    try {
+      await Promise.allSettled(imageCheckPromises);
+    } catch (error) {
+      console.log('Some image size checks failed:', error);
+    }
     
     // Links Analysis
     const links = [];
@@ -215,7 +269,7 @@ async function analyzePage(url) {
       links.some(link => link.href.startsWith('http://'))
     );
     
-    // SEO Score Calculation (More comprehensive)
+    // SEO Score Calculation (Enhanced)
     let score = 0;
     const scoreBreakdown = {
       title: 0,
@@ -231,23 +285,32 @@ async function analyzePage(url) {
     // Title scoring (15 points)
     if (title !== 'Missing') {
       scoreBreakdown.title += 7;
-      if (titleLength >= 30 && titleLength <= 60) scoreBreakdown.title += 8;
-      else if (titleLength > 0 && titleLength < 30) scoreBreakdown.title += 4;
-      else if (titleLength > 60 && titleLength <= 70) scoreBreakdown.title += 4;
+      if (titleLength >= 30 && titleLength <= 60) scoreBreakdown.title += 5;
+      else if (titleLength > 0 && titleLength < 30) scoreBreakdown.title += 2;
+      else if (titleLength > 60 && titleLength <= 70) scoreBreakdown.title += 2;
+      
+      // **NEW: Focus keyword in title bonus**
+      if (hasFocusInTitle) scoreBreakdown.title += 3;
     }
     
     // Meta Description scoring (15 points)
     if (metaDescription !== 'Missing') {
       scoreBreakdown.metaDescription += 7;
-      if (metaDescriptionLength >= 120 && metaDescriptionLength <= 160) scoreBreakdown.metaDescription += 8;
-      else if (metaDescriptionLength >= 50 && metaDescriptionLength < 120) scoreBreakdown.metaDescription += 4;
-      else if (metaDescriptionLength > 160 && metaDescriptionLength <= 200) scoreBreakdown.metaDescription += 4;
+      if (metaDescriptionLength >= 120 && metaDescriptionLength <= 160) scoreBreakdown.metaDescription += 5;
+      else if (metaDescriptionLength >= 50 && metaDescriptionLength < 120) scoreBreakdown.metaDescription += 2;
+      else if (metaDescriptionLength > 160 && metaDescriptionLength <= 200) scoreBreakdown.metaDescription += 2;
+      
+      // **NEW: Focus keyword in meta description bonus**
+      if (hasFocusInMeta) scoreBreakdown.metaDescription += 3;
     }
     
     // Headings scoring (15 points)
     if (h1Count === 1) scoreBreakdown.headings += 10;
     else if (h1Count === 2) scoreBreakdown.headings += 5;
-    if (h2Count > 0) scoreBreakdown.headings += 5;
+    if (h2Count > 0) scoreBreakdown.headings += 2;
+    
+    // **NEW: Heading hierarchy bonus**
+    if (!hasHeadingSkip && headingLevels.length > 1) scoreBreakdown.headings += 3;
     
     // Content scoring (15 points)
     if (wordCount >= 300) scoreBreakdown.content += 10;
@@ -256,9 +319,13 @@ async function analyzePage(url) {
     
     // Images scoring (10 points)
     if (imgCount > 0) {
-      scoreBreakdown.images += 5;
-      if (imgWithoutAlt === 0) scoreBreakdown.images += 5;
-      else if (imgWithoutAlt < imgCount * 0.2) scoreBreakdown.images += 3;
+      scoreBreakdown.images += 3;
+      if (imgWithoutAlt === 0) scoreBreakdown.images += 4;
+      else if (imgWithoutAlt < imgCount * 0.2) scoreBreakdown.images += 2;
+      
+      // **NEW: Penalty for oversized images**
+      if (oversizedImages === 0) scoreBreakdown.images += 3;
+      else if (oversizedImages < imgCount * 0.3) scoreBreakdown.images += 1;
     }
     
     // Technical SEO scoring (10 points)
@@ -306,6 +373,16 @@ async function analyzePage(url) {
       });
     }
     
+    // **NEW: Focus keyword in title recommendation**
+    if (focusKeyword && !hasFocusInTitle) {
+      recommendations.push({
+        type: 'info',
+        category: 'title',
+        text: `Överväg att inkludera ditt huvudnyckelord "${focusKeyword}" i title-taggen`,
+        impact: 'medium'
+      });
+    }
+    
     // Meta description recommendations
     if (metaDescription === 'Missing') {
       recommendations.push({ 
@@ -330,6 +407,16 @@ async function analyzePage(url) {
       });
     }
     
+    // **NEW: Focus keyword in meta description recommendation**
+    if (focusKeyword && !hasFocusInMeta && metaDescription !== 'Missing') {
+      recommendations.push({
+        type: 'info',
+        category: 'meta',
+        text: `Överväg att inkludera ditt huvudnyckelord "${focusKeyword}" i meta description`,
+        impact: 'medium'
+      });
+    }
+    
     // Heading recommendations
     if (h1Count === 0) {
       recommendations.push({ 
@@ -343,6 +430,16 @@ async function analyzePage(url) {
         type: 'warning', 
         category: 'headings',
         text: `Du har ${h1Count} H1-rubriker. Använd endast en H1 per sida`,
+        impact: 'medium'
+      });
+    }
+    
+    // **NEW: Heading hierarchy recommendation**
+    if (hasHeadingSkip) {
+      recommendations.push({
+        type: 'warning',
+        category: 'headings',
+        text: 'Rubriker hoppar över nivåer (t.ex. H2 → H4). Behåll logisk hierarki.',
         impact: 'medium'
       });
     }
@@ -372,6 +469,16 @@ async function analyzePage(url) {
         type: 'error', 
         category: 'images',
         text: `${imgWithoutAlt} bilder saknar alt-text. Detta påverkar tillgänglighet och SEO`,
+        impact: 'medium'
+      });
+    }
+    
+    // **NEW: Oversized images recommendation**
+    if (oversizedImages > 0) {
+      recommendations.push({
+        type: 'warning',
+        category: 'images',
+        text: `${oversizedImages} bilder är större än 300KB. Komprimera för snabbare laddning`,
         impact: 'medium'
       });
     }
@@ -492,6 +599,11 @@ async function analyzePage(url) {
       language: htmlLang,
       alternateLanguages,
       
+      // **NEW: Focus keyword analysis**
+      focusKeyword,
+      hasFocusInTitle,
+      hasFocusInMeta,
+      
       // Headings
       headings: {
         h1: { count: h1Count, texts: h1Texts },
@@ -499,7 +611,8 @@ async function analyzePage(url) {
         h3: { count: h3Count },
         h4: { count: h4Count },
         h5: { count: h5Count },
-        h6: { count: h6Count }
+        h6: { count: h6Count },
+        hasSkip: hasHeadingSkip // **NEW**
       },
       
       // Content
@@ -511,6 +624,7 @@ async function analyzePage(url) {
         total: imgCount,
         withoutAlt: imgWithoutAlt,
         withLazyLoad: imgWithLazyLoad,
+        oversized: oversizedImages, // **NEW**
         details: images.slice(0, 10) // First 10 images
       },
       
@@ -672,26 +786,4 @@ app.use((req, res) => {
       availableRoutes: ['/', '/api/health', '/api/analyze', '/results']
     });
   }
-});
-
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 SEO Analyzer running on port ${PORT}`);
-  console.log(`📊 API available at: /api/`);
-  console.log(`🌐 Landing page available at: /`);
-  console.log(`📄 Results page available at: /results`);
-  console.log(`✅ Server started successfully!`);
-  console.log(`🔧 Rate limiting: 10 requests per 24h PER IP`);
-});
-
-// Handle process errors
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
 });
