@@ -642,27 +642,23 @@ if (fs.existsSync(buildPath)) {
   console.log('✅ Serving React app from:', buildPath);
 }
 
-// Landing page route
-app.get('/*', (req, res) => { … });
-  if (req.path.startsWith('/api')) {
-    res.status(404).json({ error: 'API endpoint not found' });
-  } else if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(404).json({ error: 'React app not built' });
-  }
-});
-
-// Results route  
+// Results page BEFORE the wildcard
 app.get('/results', (req, res) => {
   if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.json({ 
-      error: 'Results page not found',
-      message: 'React build not available'
-    });
+    return res.sendFile(indexPath);
   }
+  res.status(404).json({ error: 'React build not available' });
+});
+
+// Final catch‑all – MUST be the very last route
+app.get('/*', (req, res) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.status(404).json({ error: 'React app not built' });
 });
 
 // 404 handler
