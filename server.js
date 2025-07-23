@@ -766,7 +766,7 @@ app.get('/results', (req, res) => {
 
 // Final catch‑all – MUST be the very last route
 // `/{*splat}` also matches the root path `/`
-app.get('/*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
      if (req.path.startsWith('/api')) {
        return res.status(404).json({ error: 'API endpoint not found' });
      }
@@ -775,6 +775,18 @@ app.get('/*', (req, res) => {
      }
      res.status(404).json({ error: 'React app not built' });
    });
+
+// 404 handler
+app.use((req, res) => {
+  if (req.path.startsWith('/api')) {
+    res.status(404).json({ error: 'API endpoint not found' });
+  } else {
+    res.status(404).json({ 
+      error: 'Page not found',
+      availableRoutes: ['/', '/api/health', '/api/analyze', '/results']
+    });
+  }
+});
 
 // -------------------
 // START THE SERVER
@@ -789,14 +801,13 @@ app.listen(PORT, () => {
   console.log('✅ Server started successfully!');
 });
 
-// 404 handler
-app.use((req, res) => {
-  if (req.path.startsWith('/api')) {
-    res.status(404).json({ error: 'API endpoint not found' });
-  } else {
-    res.status(404).json({ 
-      error: 'Page not found',
-      availableRoutes: ['/', '/api/health', '/api/analyze', '/results']
-    });
-  }
+// Handle process errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
