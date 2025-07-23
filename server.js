@@ -766,7 +766,7 @@ app.get('/results', (req, res) => {
 
 // Final catch‑all – MUST be the very last route
 // `/{*splat}` also matches the root path `/`
-app.get('/*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
      if (req.path.startsWith('/api')) {
        return res.status(404).json({ error: 'API endpoint not found' });
      }
