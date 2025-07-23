@@ -1,148 +1,702 @@
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-// Removed lighthouse for now - we'll add it later
 const cheerio = require('cheerio');
 const axios = require('axios');
+const path = require('path');
+const fs = require('fs');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 
-// Security and middleware
-app.use(helmet());
+// Trust proxy för DigitalOcean
+app.set('trust proxy', 1);
+
+// Basic middleware
 app.use(cors());
 app.use(express.json());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10 // limit each IP to 10 requests per windowMs
+// Rate limiter med KORREKT IP-detektering för Cloudflare/DigitalOcean
+const analyzeRateLimit = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 timmar
+  max: 10, // 10 analyser per IP
+  
+  // CUSTOM keyGenerator som tar FÖRSTA IP från x-forwarded-for
+  keyGenerator: (req) => {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    let clientIP;
+    
+    if (forwardedFor) {
+      // Ta första IP från kommaseparerad lista (före Cloudflare IP)
+      clientIP = forwardedFor.split(',')[0].trim();
+    } else {
+      clientIP = req.ip || req.connection.remoteAddress;
+    }
+    
+    console.log(`🔑 Rate limit key: ${clientIP} (from x-forwarded-for: ${forwardedFor})`);
+    return clientIP;
+  },
+  
+  message: { error: 'Du har nått dagens gräns på 10 analyser. Försök igen imorgon!' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  legacyMemoryStore: true
 });
-app.use('/api/', limiter);
 
-// SEO Analysis Functions
+// DEBUG middleware - ta bort efter test
+app.use('/api/analyze', (req, res, next) => {
+  console.log(`🔍 Request IP: ${req.ip}`);
+  console.log(`🕐 Time: ${new Date()}`);
+  next();
+});
+
+// Enhanced SEO analysis function
 async function analyzePage(url) {
   try {
-    // Get page content
     const response = await axios.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEO-Analyzer/1.0)' }
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (compatible; SEO-Analyzer/1.0; +https://seoanalyze.se)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'sv-SE,sv;q=0.9,en;q=0.8'
+      },
+      timeout: 15000,
+      maxRedirects: 5
     });
-    const $ = cheerio.load(response.data);
     
-    // Basic SEO checks
-    const analysis = {
-      url: url,
-      title: $('title').text() || 'Missing',
-      titleLength: $('title').text().length,
-      metaDescription: $('meta[name="description"]').attr('content') || 'Missing',
-      metaDescriptionLength: ($('meta[name="description"]').attr('content') || '').length,
-      h1Count: $('h1').length,
-      h1Text: $('h1').first().text() || 'Missing',
-      h2Count: $('h2').length,
-      imgCount: $('img').length,
-      imgWithoutAlt: $('img').filter((i, el) => !$(el).attr('alt')).length,
-      internalLinks: $('a[href^="/"], a[href*="' + new URL(url).hostname + '"]').length,
-      externalLinks: $('a[href^="http"]').not('[href*="' + new URL(url).hostname + '"]').length,
-      wordCount: $('body').text().replace(/\s+/g, ' ').split(' ').length,
-      timestamp: new Date()
+    const $ = cheerio.load(response.data);
+    const finalUrl = response.request.res.responseUrl || url;
+    
+    // Basic Meta Tags
+    const title = $('title').text().trim() || 'Missing';
+    const titleLength = title.length;
+    const metaDescription = $('meta[name="description"]').attr('content')?.trim() || 'Missing';
+    const metaDescriptionLength = metaDescription === 'Missing' ? 0 : metaDescription.length;
+    const metaKeywords = $('meta[name="keywords"]').attr('content')?.trim() || 'Missing';
+    const metaRobots = $('meta[name="robots"]').attr('content')?.trim() || 'Not specified';
+    const canonicalUrl = $('link[rel="canonical"]').attr('href') || 'Missing';
+    const viewport = $('meta[name="viewport"]').attr('content') || 'Missing';
+    const charset = $('meta[charset]').attr('charset') || $('meta[http-equiv="Content-Type"]').attr('content') || 'Not specified';
+    
+    // Open Graph Tags
+    const ogTitle = $('meta[property="og:title"]').attr('content')?.trim() || 'Missing';
+    const ogDescription = $('meta[property="og:description"]').attr('content')?.trim() || 'Missing';
+    const ogImage = $('meta[property="og:image"]').attr('content') || 'Missing';
+    const ogType = $('meta[property="og:type"]').attr('content') || 'Missing';
+    const ogUrl = $('meta[property="og:url"]').attr('content') || 'Missing';
+    
+    // Twitter Cards
+    const twitterCard = $('meta[name="twitter:card"]').attr('content') || 'Missing';
+    const twitterTitle = $('meta[name="twitter:title"]').attr('content')?.trim() || 'Missing';
+    const twitterDescription = $('meta[name="twitter:description"]').attr('content')?.trim() || 'Missing';
+    const twitterImage = $('meta[name="twitter:image"]').attr('content') || 'Missing';
+    
+    // Language and Localization
+    const htmlLang = $('html').attr('lang') || 'Missing';
+    const alternateLanguages = [];
+    $('link[rel="alternate"][hreflang]').each((i, elem) => {
+      alternateLanguages.push({
+        lang: $(elem).attr('hreflang'),
+        url: $(elem).attr('href')
+      });
+    });
+    
+    // Headings Analysis
+    const h1Count = $('h1').length;
+    const h1Texts = [];
+    $('h1').each((i, elem) => {
+      const text = $(elem).text().trim();
+      if (text) h1Texts.push(text);
+    });
+    const h2Count = $('h2').length;
+    const h3Count = $('h3').length;
+    const h4Count = $('h4').length;
+    const h5Count = $('h5').length;
+    const h6Count = $('h6').length;
+    
+    // Content Analysis
+    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+    const wordCount = bodyText.split(' ').filter(word => word.length > 0).length;
+    
+    // Keyword Density Analysis (top 10 keywords)
+    const words = bodyText.toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 3); // Ignore short words
+    
+    const wordFrequency = {};
+    words.forEach(word => {
+      wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+    });
+    
+    const keywordDensity = Object.entries(wordFrequency)
+      .map(([word, count]) => ({
+        word,
+        count,
+        density: ((count / words.length) * 100).toFixed(2)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+    
+    // Images Analysis
+    const images = [];
+    $('img').each((i, elem) => {
+      const img = $(elem);
+      images.push({
+        src: img.attr('src') || 'Missing',
+        alt: img.attr('alt') || '',
+        title: img.attr('title') || '',
+        width: img.attr('width') || 'Not specified',
+        height: img.attr('height') || 'Not specified',
+        loading: img.attr('loading') || 'Not specified'
+      });
+    });
+    
+    const imgCount = images.length;
+    const imgWithoutAlt = images.filter(img => !img.alt).length;
+    const imgWithLazyLoad = images.filter(img => img.loading === 'lazy').length;
+    
+    // Links Analysis
+    const links = [];
+    $('a[href]').each((i, elem) => {
+      const link = $(elem);
+      const href = link.attr('href');
+      if (href) {
+        links.push({
+          href,
+          text: link.text().trim(),
+          title: link.attr('title') || '',
+          rel: link.attr('rel') || '',
+          target: link.attr('target') || ''
+        });
+      }
+    });
+    
+    const internalLinks = links.filter(link => {
+      const href = link.href;
+      return href.startsWith('/') || href.includes(new URL(finalUrl).hostname);
+    }).length;
+    
+    const externalLinks = links.filter(link => {
+      const href = link.href;
+      return href.startsWith('http') && !href.includes(new URL(finalUrl).hostname);
+    }).length;
+    
+    const nofollowLinks = links.filter(link => link.rel.includes('nofollow')).length;
+    const brokenAnchors = links.filter(link => link.href === '#' || link.href === '').length;
+    
+    // Schema.org / Structured Data
+    const schemaScripts = [];
+    $('script[type="application/ld+json"]').each((i, elem) => {
+      try {
+        const schema = JSON.parse($(elem).text());
+        schemaScripts.push(schema);
+      } catch (e) {
+        // Invalid JSON
+      }
+    });
+    const hasSchema = schemaScripts.length > 0;
+    const schemaTypes = schemaScripts.map(s => s['@type']).filter(Boolean);
+    
+    // Performance Indicators
+    const inlineStyles = $('style').length + $('[style]').length;
+    const externalCSS = $('link[rel="stylesheet"]').length;
+    const externalJS = $('script[src]').length;
+    const inlineJS = $('script:not([src])').length - schemaScripts.length; // Exclude schema scripts
+    
+    // Mobile & Responsive
+    const hasViewport = viewport !== 'Missing';
+    const hasResponsiveImages = images.some(img => 
+      img.src.includes('srcset') || $(`img[src="${img.src}"]`).attr('srcset')
+    );
+    
+    // Security
+    const hasHTTPS = finalUrl.startsWith('https://');
+    const mixedContent = hasHTTPS && (
+      images.some(img => img.src.startsWith('http://')) ||
+      links.some(link => link.href.startsWith('http://'))
+    );
+    
+    // SEO Score Calculation (More comprehensive)
+    let score = 0;
+    const scoreBreakdown = {
+      title: 0,
+      metaDescription: 0,
+      headings: 0,
+      content: 0,
+      images: 0,
+      technical: 0,
+      social: 0,
+      mobile: 0
     };
     
-    // Calculate SEO score
-    analysis.seoScore = calculateSEOScore(analysis);
-    analysis.recommendations = generateRecommendations(analysis);
+    // Title scoring (15 points)
+    if (title !== 'Missing') {
+      scoreBreakdown.title += 7;
+      if (titleLength >= 30 && titleLength <= 60) scoreBreakdown.title += 8;
+      else if (titleLength > 0 && titleLength < 30) scoreBreakdown.title += 4;
+      else if (titleLength > 60 && titleLength <= 70) scoreBreakdown.title += 4;
+    }
     
-    return analysis;
+    // Meta Description scoring (15 points)
+    if (metaDescription !== 'Missing') {
+      scoreBreakdown.metaDescription += 7;
+      if (metaDescriptionLength >= 120 && metaDescriptionLength <= 160) scoreBreakdown.metaDescription += 8;
+      else if (metaDescriptionLength >= 50 && metaDescriptionLength < 120) scoreBreakdown.metaDescription += 4;
+      else if (metaDescriptionLength > 160 && metaDescriptionLength <= 200) scoreBreakdown.metaDescription += 4;
+    }
+    
+    // Headings scoring (15 points)
+    if (h1Count === 1) scoreBreakdown.headings += 10;
+    else if (h1Count === 2) scoreBreakdown.headings += 5;
+    if (h2Count > 0) scoreBreakdown.headings += 5;
+    
+    // Content scoring (15 points)
+    if (wordCount >= 300) scoreBreakdown.content += 10;
+    else if (wordCount >= 150) scoreBreakdown.content += 5;
+    if (keywordDensity.length >= 5) scoreBreakdown.content += 5;
+    
+    // Images scoring (10 points)
+    if (imgCount > 0) {
+      scoreBreakdown.images += 5;
+      if (imgWithoutAlt === 0) scoreBreakdown.images += 5;
+      else if (imgWithoutAlt < imgCount * 0.2) scoreBreakdown.images += 3;
+    }
+    
+    // Technical SEO scoring (10 points)
+    if (hasHTTPS) scoreBreakdown.technical += 3;
+    if (canonicalUrl !== 'Missing') scoreBreakdown.technical += 2;
+    if (hasSchema) scoreBreakdown.technical += 3;
+    if (metaRobots !== 'Missing') scoreBreakdown.technical += 2;
+    
+    // Social scoring (10 points)
+    if (ogTitle !== 'Missing' && ogDescription !== 'Missing') scoreBreakdown.social += 5;
+    if (ogImage !== 'Missing') scoreBreakdown.social += 3;
+    if (twitterCard !== 'Missing') scoreBreakdown.social += 2;
+    
+    // Mobile scoring (10 points)
+    if (hasViewport) scoreBreakdown.mobile += 7;
+    if (hasResponsiveImages) scoreBreakdown.mobile += 3;
+    
+    // Calculate total score
+    score = Object.values(scoreBreakdown).reduce((a, b) => a + b, 0);
+    
+    // Generate Recommendations
+    const recommendations = [];
+    
+    // Title recommendations
+    if (title === 'Missing') {
+      recommendations.push({ 
+        type: 'error', 
+        category: 'title',
+        text: 'Lägg till en title-tagg på din sida',
+        impact: 'high'
+      });
+    } else if (titleLength < 30) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'title',
+        text: 'Din title är för kort. Sikta på 30-60 tecken för bästa resultat',
+        impact: 'medium'
+      });
+    } else if (titleLength > 60) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'title',
+        text: 'Din title är för lång och kan bli avklippt i sökresultaten',
+        impact: 'medium'
+      });
+    }
+    
+    // Meta description recommendations
+    if (metaDescription === 'Missing') {
+      recommendations.push({ 
+        type: 'error', 
+        category: 'meta',
+        text: 'Lägg till en meta description för att förbättra klickfrekvensen',
+        impact: 'high'
+      });
+    } else if (metaDescriptionLength < 120) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'meta',
+        text: 'Din meta description är för kort. Använd 120-160 tecken',
+        impact: 'medium'
+      });
+    } else if (metaDescriptionLength > 160) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'meta',
+        text: 'Din meta description är för lång och kommer klippas av',
+        impact: 'medium'
+      });
+    }
+    
+    // Heading recommendations
+    if (h1Count === 0) {
+      recommendations.push({ 
+        type: 'error', 
+        category: 'headings',
+        text: 'Lägg till en H1-rubrik på din sida',
+        impact: 'high'
+      });
+    } else if (h1Count > 1) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'headings',
+        text: `Du har ${h1Count} H1-rubriker. Använd endast en H1 per sida`,
+        impact: 'medium'
+      });
+    }
+    
+    if (h2Count === 0) {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'headings',
+        text: 'Överväg att lägga till H2-rubriker för bättre struktur',
+        impact: 'low'
+      });
+    }
+    
+    // Content recommendations
+    if (wordCount < 300) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'content',
+        text: `Din sida har endast ${wordCount} ord. Sikta på minst 300 ord för bättre SEO`,
+        impact: 'high'
+      });
+    }
+    
+    // Image recommendations
+    if (imgWithoutAlt > 0) {
+      recommendations.push({ 
+        type: 'error', 
+        category: 'images',
+        text: `${imgWithoutAlt} bilder saknar alt-text. Detta påverkar tillgänglighet och SEO`,
+        impact: 'medium'
+      });
+    }
+    
+    if (imgCount > 5 && imgWithLazyLoad === 0) {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'images',
+        text: 'Överväg lazy loading för bilder för bättre prestanda',
+        impact: 'low'
+      });
+    }
+    
+    // Technical recommendations
+    if (!hasHTTPS) {
+      recommendations.push({ 
+        type: 'error', 
+        category: 'technical',
+        text: 'Din sida använder inte HTTPS. Detta påverkar säkerhet och ranking',
+        impact: 'high'
+      });
+    }
+    
+    if (canonicalUrl === 'Missing') {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'technical',
+        text: 'Lägg till en canonical URL för att undvika duplicate content',
+        impact: 'medium'
+      });
+    }
+    
+    if (!hasSchema) {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'technical',
+        text: 'Lägg till strukturerad data (Schema.org) för rikare sökresultat',
+        impact: 'medium'
+      });
+    }
+    
+    if (htmlLang === 'Missing') {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'technical',
+        text: 'Ange språk med lang-attribut på html-taggen',
+        impact: 'medium'
+      });
+    }
+    
+    // Social recommendations
+    if (ogTitle === 'Missing' || ogDescription === 'Missing') {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'social',
+        text: 'Lägg till Open Graph-taggar för bättre delning på sociala medier',
+        impact: 'low'
+      });
+    }
+    
+    if (ogImage === 'Missing') {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'social',
+        text: 'Lägg till en Open Graph-bild för attraktivare delningar',
+        impact: 'low'
+      });
+    }
+    
+    // Mobile recommendations
+    if (!hasViewport) {
+      recommendations.push({ 
+        type: 'error', 
+        category: 'mobile',
+        text: 'Saknar viewport meta-tagg. Din sida är inte mobiloptimerad',
+        impact: 'high'
+      });
+    }
+    
+    // Link recommendations
+    if (brokenAnchors > 0) {
+      recommendations.push({ 
+        type: 'warning', 
+        category: 'links',
+        text: `${brokenAnchors} länkar saknar destination (href="#" eller tomt)`,
+        impact: 'low'
+      });
+    }
+    
+    if (externalLinks > 0 && nofollowLinks === 0) {
+      recommendations.push({ 
+        type: 'info', 
+        category: 'links',
+        text: 'Överväg att använda rel="nofollow" på externa länkar du inte vill ge link juice',
+        impact: 'low'
+      });
+    }
+    
+    // Sort recommendations by impact
+    const impactOrder = { high: 0, medium: 1, low: 2 };
+    recommendations.sort((a, b) => impactOrder[a.impact] - impactOrder[b.impact]);
+    
+    // Return comprehensive analysis
+    return {
+      url: finalUrl,
+      timestamp: new Date(),
+      
+      // Basic Info
+      title,
+      titleLength,
+      metaDescription,
+      metaDescriptionLength,
+      metaKeywords,
+      metaRobots,
+      canonicalUrl,
+      viewport,
+      charset,
+      language: htmlLang,
+      alternateLanguages,
+      
+      // Headings
+      headings: {
+        h1: { count: h1Count, texts: h1Texts },
+        h2: { count: h2Count },
+        h3: { count: h3Count },
+        h4: { count: h4Count },
+        h5: { count: h5Count },
+        h6: { count: h6Count }
+      },
+      
+      // Content
+      wordCount,
+      keywordDensity,
+      
+      // Images
+      images: {
+        total: imgCount,
+        withoutAlt: imgWithoutAlt,
+        withLazyLoad: imgWithLazyLoad,
+        details: images.slice(0, 10) // First 10 images
+      },
+      
+      // Links
+      links: {
+        internal: internalLinks,
+        external: externalLinks,
+        nofollow: nofollowLinks,
+        broken: brokenAnchors,
+        total: links.length
+      },
+      
+      // Social Media
+      openGraph: {
+        title: ogTitle,
+        description: ogDescription,
+        image: ogImage,
+        type: ogType,
+        url: ogUrl
+      },
+      
+      twitter: {
+        card: twitterCard,
+        title: twitterTitle,
+        description: twitterDescription,
+        image: twitterImage
+      },
+      
+      // Technical SEO
+      technical: {
+        https: hasHTTPS,
+        mixedContent,
+        hasSchema,
+        schemaTypes,
+        inlineStyles,
+        externalCSS,
+        externalJS,
+        inlineJS
+      },
+      
+      // Mobile
+      mobile: {
+        hasViewport,
+        hasResponsiveImages
+      },
+      
+      // Scores
+      seoScore: Math.min(score, 100),
+      scoreBreakdown,
+      
+      // Recommendations
+      recommendations
+    };
+    
   } catch (error) {
+    console.error('Analysis error:', error);
     throw new Error(`Analysis failed: ${error.message}`);
   }
 }
 
-function calculateSEOScore(analysis) {
-  let score = 0;
-  
-  // Title checks (25 points)
-  if (analysis.title && analysis.title !== 'Missing') score += 10;
-  if (analysis.titleLength >= 30 && analysis.titleLength <= 60) score += 15;
-  
-  // Meta description (20 points)
-  if (analysis.metaDescription && analysis.metaDescription !== 'Missing') score += 10;
-  if (analysis.metaDescriptionLength >= 120 && analysis.metaDescriptionLength <= 160) score += 10;
-  
-  // Headers (20 points)
-  if (analysis.h1Count === 1) score += 15;
-  if (analysis.h2Count > 0) score += 5;
-  
-  // Images (15 points)
-  if (analysis.imgWithoutAlt === 0 && analysis.imgCount > 0) score += 15;
-  
-  // Content (20 points)
-  if (analysis.wordCount > 300) score += 10;
-  if (analysis.wordCount > 1000) score += 10;
-  
-  return Math.min(score, 100);
-}
-
-function generateRecommendations(analysis) {
-  const recommendations = [];
-  
-  if (analysis.title === 'Missing') {
-    recommendations.push({ type: 'error', text: 'Add a title tag to your page' });
-  } else if (analysis.titleLength < 30 || analysis.titleLength > 60) {
-    recommendations.push({ type: 'warning', text: 'Title should be 30-60 characters long' });
-  }
-  
-  if (analysis.metaDescription === 'Missing') {
-    recommendations.push({ type: 'error', text: 'Add a meta description' });
-  } else if (analysis.metaDescriptionLength < 120 || analysis.metaDescriptionLength > 160) {
-    recommendations.push({ type: 'warning', text: 'Meta description should be 120-160 characters' });
-  }
-  
-  if (analysis.h1Count === 0) {
-    recommendations.push({ type: 'error', text: 'Add an H1 tag to your page' });
-  } else if (analysis.h1Count > 1) {
-    recommendations.push({ type: 'warning', text: 'Use only one H1 tag per page' });
-  }
-  
-  if (analysis.imgWithoutAlt > 0) {
-    recommendations.push({ type: 'warning', text: `${analysis.imgWithoutAlt} images missing alt text` });
-  }
-  
-  if (analysis.wordCount < 300) {
-    recommendations.push({ type: 'info', text: 'Consider adding more content (300+ words recommended)' });
-  }
-  
-  return recommendations;
-}
-
 // API Routes
-app.post('/api/analyze', async (req, res) => {
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date(),
+    message: 'SEO Analyzer API is running!'
+  });
+});
+
+// Debug endpoint - ta bort efter test
+app.get('/api/debug-ip', (req, res) => {
+  res.json({
+    detectedIP: req.ip,
+    headers: {
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      'x-real-ip': req.headers['x-real-ip']
+    },
+    connection: req.connection.remoteAddress
+  });
+});
+
+// Analyze route med rate limiting
+app.post('/api/analyze', analyzeRateLimit, async (req, res) => {
   try {
     const { url } = req.body;
+    
+    console.log(`✅ Request allowed for IP: ${req.ip}`);
+    if (req.rateLimit) {
+      console.log(`📊 Remaining: ${req.rateLimit.remaining}/${req.rateLimit.limit}`);
+    }
     
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
     }
     
     // Validate URL
+    let validatedUrl;
     try {
-      new URL(url);
+      validatedUrl = new URL(url);
+      if (!['http:', 'https:'].includes(validatedUrl.protocol)) {
+        throw new Error('Invalid protocol');
+      }
     } catch {
-      return res.status(400).json({ error: 'Invalid URL format' });
+      return res.status(400).json({ error: 'Invalid URL format. Please include http:// or https://' });
     }
     
-    const analysis = await analyzePage(url);
+    const analysis = await analyzePage(validatedUrl.href);
     res.json(analysis);
+    
   } catch (error) {
     console.error('Analysis error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date() });
+// Check if React build exists
+const buildPath = path.join(__dirname, 'client', 'build');
+const indexPath = path.join(buildPath, 'index.html');
+
+console.log('Checking for React build...');
+console.log('Build path:', buildPath);
+console.log('Index path:', indexPath);
+console.log('Build exists:', fs.existsSync(buildPath));
+console.log('Index exists:', fs.existsSync(indexPath));
+
+// Serve React static files if they exist
+if (fs.existsSync(buildPath)) {
+  app.use(express.static(buildPath));
+  console.log('✅ Serving React app from:', buildPath);
+}
+
+// Landing page route
+app.get('/', (req, res) => {
+  const landingPath = path.join(__dirname, 'client/public/index.html');
+  if (fs.existsSync(landingPath)) {
+    res.sendFile(landingPath);
+  } else {
+    res.json({ 
+      error: 'Landing page not found',
+      message: 'Please make sure index.html exists in client/public directory'
+    });
+  }
+});
+
+// Results route  
+app.get('/results', (req, res) => {
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.json({ 
+      error: 'Results page not found',
+      message: 'React build not available'
+    });
+  }
+});
+
+// 404 handler
+app.use((req, res) => {
+  if (req.path.startsWith('/api')) {
+    res.status(404).json({ error: 'API endpoint not found' });
+  } else {
+    res.status(404).json({ 
+      error: 'Page not found',
+      availableRoutes: ['/', '/api/health', '/api/analyze', '/results']
+    });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
-  console.log(`SEO Analyzer API running on port ${PORT}`);
+  console.log(`🚀 SEO Analyzer running on port ${PORT}`);
+  console.log(`📊 API available at: /api/`);
+  console.log(`🌐 Landing page available at: /`);
+  console.log(`📄 Results page available at: /results`);
+  console.log(`✅ Server started successfully!`);
+  console.log(`🔧 Rate limiting: 10 requests per 24h PER IP`);
+});
+
+// Handle process errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
