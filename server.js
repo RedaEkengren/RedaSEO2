@@ -776,6 +776,19 @@ app.get('/{*splat}', (req, res) => {
      res.status(404).json({ error: 'React app not built' });
    });
 
+// -------------------
+// START THE SERVER
+// -------------------
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 SEO Analyzer running on port ${PORT}`);
+  console.log('📊 API available at: /api/');
+  console.log('🌐 Landing page available at: /');
+  console.log('📄 Results page available at: /results');
+  console.log('✅ Server started successfully!');
+});
+
 // 404 handler
 app.use((req, res) => {
   if (req.path.startsWith('/api')) {
