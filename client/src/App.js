@@ -213,6 +213,29 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
 
   const renderOverviewTab = () => (
     <div className="tab-content overview-tab">
+      {/* Focus Keyword Section - NEW */}
+      {analysis.focusKeyword && (
+        <div className="focus-keyword-section">
+          <h3>Fokusnyckelord</h3>
+          <div className="focus-keyword-card">
+            <div className="focus-keyword-word">"{analysis.focusKeyword}"</div>
+            <div className="focus-keyword-stats">
+              <div className={`focus-stat ${analysis.hasFocusInTitle ? 'good' : 'warning'}`}>
+                <span className="focus-stat-icon">{analysis.hasFocusInTitle ? '✓' : '✗'}</span>
+                <span className="focus-stat-label">I title</span>
+              </div>
+              <div className={`focus-stat ${analysis.hasFocusInMeta ? 'good' : 'warning'}`}>
+                <span className="focus-stat-icon">{analysis.hasFocusInMeta ? '✓' : '✗'}</span>
+                <span className="focus-stat-label">I meta description</span>
+              </div>
+            </div>
+            <p className="focus-keyword-desc">
+              Detta är ditt mest använda nyckelord. Se till att det finns i title och meta description för bästa SEO.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Score Breakdown */}
       <div className="score-breakdown-section">
         <h3>SEO Score Breakdown</h3>
@@ -249,6 +272,22 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
           <span className="stat-value">{analysis.headings.h1.count}</span>
           <span className="stat-label">H1 Tags</span>
         </div>
+        {/* NEW: Heading hierarchy indicator */}
+        <div className="stat-card">
+          <span className="stat-icon">{analysis.headings.hasSkip ? '⚠️' : '✅'}</span>
+          <span className={`stat-value ${analysis.headings.hasSkip ? 'warning' : 'good'}`}>
+            {analysis.headings.hasSkip ? 'Skip' : 'OK'}
+          </span>
+          <span className="stat-label">Heading Order</span>
+        </div>
+        {/* NEW: Oversized images indicator */}
+        {analysis.images.oversized > 0 && (
+          <div className="stat-card">
+            <span className="stat-icon">📦</span>
+            <span className="stat-value warning">{analysis.images.oversized}</span>
+            <span className="stat-label">Large Images</span>
+          </div>
+        )}
       </div>
 
       {/* Top Recommendations */}
@@ -279,6 +318,24 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
 
   const renderMetaTab = () => (
     <div className="tab-content meta-tab">
+      {/* Focus Keyword Analysis - NEW */}
+      {analysis.focusKeyword && (
+        <div className="meta-section">
+          <h3>Fokusnyckelord Analys</h3>
+          <div className="meta-item">
+            <div className="meta-value">Huvudnyckelord: <strong>"{analysis.focusKeyword}"</strong></div>
+            <div className="meta-info">
+              <span className={`status-badge ${analysis.hasFocusInTitle ? 'good' : 'warning'}`}>
+                {analysis.hasFocusInTitle ? '✓ Finns i title' : '✗ Saknas i title'}
+              </span>
+              <span className={`status-badge ${analysis.hasFocusInMeta ? 'good' : 'warning'}`}>
+                {analysis.hasFocusInMeta ? '✓ Finns i meta' : '✗ Saknas i meta'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Title Section */}
       <div className="meta-section">
         <h3>Title Tag</h3>
@@ -393,6 +450,13 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
       {/* Headings Structure */}
       <div className="content-section">
         <h3>Heading Structure</h3>
+        {/* NEW: Heading hierarchy warning */}
+        {analysis.headings.hasSkip && (
+          <div className="hierarchy-warning">
+            <span className="warning-icon">⚠️</span>
+            <span className="warning-text">Rubrikstruktur hoppar över nivåer! Detta kan förvirra sökmotorer.</span>
+          </div>
+        )}
         <div className="heading-structure">
           <div className="heading-level">
             <span className="heading-tag">H1</span>
@@ -457,7 +521,10 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
         <div className="keyword-list">
           {analysis.keywordDensity.map((keyword, index) => (
             <div key={index} className="keyword-item">
-              <span className="keyword-word">{keyword.word}</span>
+              <span className="keyword-word">
+                {keyword.word}
+                {index === 0 && <span className="focus-indicator">👑 Focus</span>}
+              </span>
               <span className="keyword-count">{keyword.count} times</span>
               <span className="keyword-density">{keyword.density}%</span>
             </div>
@@ -483,6 +550,13 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
             <span className="stat-label">With Lazy Loading:</span>
             <span className="stat-value">{analysis.images.withLazyLoad}</span>
           </div>
+          {/* NEW: Oversized images stat */}
+          <div className="image-stat">
+            <span className="stat-label">Large Images (>300KB):</span>
+            <span className={`stat-value ${analysis.images.oversized === 0 ? 'good' : 'warning'}`}>
+              {analysis.images.oversized}
+            </span>
+          </div>
         </div>
         
         {analysis.images.details.length > 0 && (
@@ -494,6 +568,12 @@ const ResultsPage = ({ analysis, onNewAnalysis }) => {
                 <span className={`image-alt ${img.alt ? 'good' : 'warning'}`}>
                   {img.alt || 'No alt text'}
                 </span>
+                {/* NEW: Show oversized indicator */}
+                {img.oversized && (
+                  <span className="image-size warning">
+                    📦 {Math.round(img.size / 1024)}KB
+                  </span>
+                )}
               </div>
             ))}
           </div>
