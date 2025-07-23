@@ -1,11 +1,142 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
-// Configure axios to use your local server
+// Configure axios
 const API_BASE = '';
 
-// Score visualization component
+// Landing Page Component
+const LandingPage = ({ onAnalyze }) => {
+  const [url, setUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post(`${API_BASE}/api/analyze`, { url });
+      onAnalyze(response.data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Analysis failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Header */}
+      <header className="header">
+        <div className="nav-container">
+          <a href="/" className="logo">
+            <div className="logo-icon"></div>
+            <div className="logo-text">SEO Analyzer</div>
+          </a>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="main-content">
+        {/* Hero Section */}
+        <section className="hero">
+          <div className="hero-container">
+            <h1>Gratis SEO-analys</h1>
+            <h2>Få professionella SEO-insights på sekunder</h2>
+            <p className="hero-description">
+              Analysera din hemsidas SEO-prestanda helt gratis med vårt professionella verktyg. 
+              Upptäck problem, få förbättringsförslag och öka din synlighet i Google.
+            </p>
+
+            {/* SEO Tool Card */}
+            <div className="hero-tool-card">
+              <h3 className="hero-tool-title">Analysera din hemsida nu</h3>
+              
+              <form className="hero-url-form" onSubmit={handleSubmit}>
+                <div className="hero-input-group">
+                  <input 
+                    type="url" 
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    className="hero-url-input"
+                    placeholder="https://example.com" 
+                    required
+                  />
+                  <button type="submit" className="hero-analyze-btn" disabled={loading}>
+                    <span>{loading ? 'Analyserar...' : 'Analysera SEO'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {loading && (
+                <div className="loading-spinner-inline">
+                  <div className="spinner"></div>
+                  <p>Analyserar din hemsida...</p>
+                </div>
+              )}
+
+              {error && (
+                <div className="error-message-inline">{error}</div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Features */}
+        <section className="features" id="features">
+          <div className="features-container">
+            <h3 className="features-title">Vad analyserar verktyget?</h3>
+            <div className="features-grid">
+              <div className="feature-card">
+                <h4 className="feature-title">SEO-poäng</h4>
+                <p className="feature-description">Få en övergripande SEO-bedömning av din hemsida på en skala från 0-100.</p>
+              </div>
+              <div className="feature-card">
+                <h4 className="feature-title">Title & Meta</h4>
+                <p className="feature-description">Kontrollera dina title-taggar och meta-beskrivningar för optimal synlighet.</p>
+              </div>
+              <div className="feature-card">
+                <h4 className="feature-title">Innehållsanalys</h4>
+                <p className="feature-description">Analys av rubriker, ordantal och innehållsstruktur för bättre SEO.</p>
+              </div>
+              <div className="feature-card">
+                <h4 className="feature-title">Bildoptimering</h4>
+                <p className="feature-description">Kontrollera alt-texter och bildoptimering för förbättrad tillgänglighet.</p>
+              </div>
+              <div className="feature-card">
+                <h4 className="feature-title">Länkanalys</h4>
+                <p className="feature-description">Granskning av interna och externa länkar för bättre sajtsstruktur.</p>
+              </div>
+              <div className="feature-card">
+                <h4 className="feature-title">Förbättringstips</h4>
+                <p className="feature-description">Konkreta rekommendationer för att höja din SEO-ranking.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Footer */}
+      <footer className="footer">
+        <div className="footer-content">
+          <div className="footer-brand">Powered by Benbo</div>
+          <p className="footer-text">
+            Professionell SEO-analys utvecklad av <a href="https://benbo.se" className="footer-link">Benbo IT-konsulting</a>
+          </p>
+          <p className="footer-text">
+            <a href="https://benbo.se" className="footer-link">Benbo.se</a> • 
+            <a href="#" className="footer-link">Integritetspolicy</a> • 
+            <a href="#" className="footer-link">Kontakt</a>
+          </p>
+        </div>
+      </footer>
+    </>
+  );
+};
+
+// Score Circle Component
 const ScoreCircle = ({ score }) => {
   const radius = 40;
   const circumference = 2 * Math.PI * radius;
@@ -50,7 +181,7 @@ const ScoreCircle = ({ score }) => {
   );
 };
 
-// Mini score component for score breakdown
+// Mini Score Component
 const MiniScore = ({ label, score, maxScore }) => {
   const percentage = (score / maxScore) * 100;
   const getColor = (pct) => {
@@ -76,29 +207,9 @@ const MiniScore = ({ label, score, maxScore }) => {
   );
 };
 
-function App() {
-  const [url, setUrl] = useState('');
-  const [analysis, setAnalysis] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+// Results Page Component
+const ResultsPage = ({ analysis, onNewAnalysis }) => {
   const [activeTab, setActiveTab] = useState('overview');
-
-  const analyzeWebsite = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setAnalysis(null);
-
-    try {
-      const response = await axios.post(`${API_BASE}/api/analyze`, { url });
-      setAnalysis(response.data);
-      setActiveTab('overview');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Analysis failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const renderOverviewTab = () => (
     <div className="tab-content overview-tab">
@@ -554,133 +665,127 @@ function App() {
   return (
     <div className="App">
       <header className="app-header">
-        <h1>SEO Analyzer</h1>
-        <p>Analyze your website's SEO performance instantly</p>
+        <h1>SEO Analysis Results</h1>
+        <p>Professional SEO insights for your website</p>
       </header>
 
       <main className="main-content">
-        <form onSubmit={analyzeWebsite} className="url-form">
-          <div className="input-group">
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="Enter website URL (e.g., https://example.com)"
-              required
-              className="url-input"
-            />
+        <div className="results-container">
+          <div className="results-header">
+            <h2>Analysis Complete</h2>
+            <p className="analyzed-url">{analysis.url}</p>
+          </div>
+
+          <div className="score-section">
+            <ScoreCircle score={analysis.seoScore} />
+            <div className="score-description">
+              <h3>Overall SEO Score</h3>
+              <p>
+                {analysis.seoScore >= 80 ? 'Excellent! Your SEO is well optimized.' :
+                 analysis.seoScore >= 60 ? 'Good, but there\'s room for improvement.' :
+                 'Needs work. Several SEO issues found.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Tabs Navigation */}
+          <div className="tabs-navigation">
             <button 
-              type="submit" 
-              disabled={loading}
-              className="analyze-btn"
+              className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('overview')}
             >
-              {loading ? 'Analyzing...' : 'Analyze SEO'}
+              Overview
+            </button>
+            <button 
+              className={`tab-btn ${activeTab === 'meta' ? 'active' : ''}`}
+              onClick={() => setActiveTab('meta')}
+            >
+              Meta Tags
+            </button>
+            <button 
+              className={`tab-btn ${activeTab === 'content' ? 'active' : ''}`}
+              onClick={() => setActiveTab('content')}
+            >
+              Content
+            </button>
+            <button 
+              className={`tab-btn ${activeTab === 'technical' ? 'active' : ''}`}
+              onClick={() => setActiveTab('technical')}
+            >
+              Technical
+            </button>
+            <button 
+              className={`tab-btn ${activeTab === 'recommendations' ? 'active' : ''}`}
+              onClick={() => setActiveTab('recommendations')}
+            >
+              Recommendations
+              <span className="rec-count">{analysis.recommendations.length}</span>
             </button>
           </div>
-        </form>
 
-        {error && (
-          <div className="error-message">
-            {error}
+          {/* Tab Content */}
+          <div className="tab-container">
+            {activeTab === 'overview' && renderOverviewTab()}
+            {activeTab === 'meta' && renderMetaTab()}
+            {activeTab === 'content' && renderContentTab()}
+            {activeTab === 'technical' && renderTechnicalTab()}
+            {activeTab === 'recommendations' && renderRecommendationsTab()}
           </div>
-        )}
 
-        {loading && (
-          <div className="loading-spinner">
-            <div className="spinner"></div>
-            <p>Analyzing your website's SEO...</p>
+          {/* Actions */}
+          <div className="results-actions">
+            <button 
+              className="export-btn"
+              onClick={() => {
+                const dataStr = JSON.stringify(analysis, null, 2);
+                const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+                const exportFileDefaultName = `seo-analysis-${new Date().toISOString().split('T')[0]}.json`;
+                const linkElement = document.createElement('a');
+                linkElement.setAttribute('href', dataUri);
+                linkElement.setAttribute('download', exportFileDefaultName);
+                linkElement.click();
+              }}
+            >
+              Export Analysis (JSON)
+            </button>
+            <button 
+              className="new-analysis-btn"
+              onClick={onNewAnalysis}
+            >
+              Analyze Another Site
+            </button>
           </div>
-        )}
-
-        {analysis && (
-          <div className="results-container">
-            <div className="results-header">
-              <h2>SEO Analysis Results</h2>
-              <p className="analyzed-url">{analysis.url}</p>
-            </div>
-
-            <div className="score-section">
-              <ScoreCircle score={analysis.seoScore} />
-              <div className="score-description">
-                <h3>Overall SEO Score</h3>
-                <p>
-                  {analysis.seoScore >= 80 ? 'Excellent! Your SEO is well optimized.' :
-                   analysis.seoScore >= 60 ? 'Good, but there\'s room for improvement.' :
-                   'Needs work. Several SEO issues found.'}
-                </p>
-              </div>
-            </div>
-
-            {/* Tabs Navigation */}
-            <div className="tabs-navigation">
-              <button 
-                className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-                onClick={() => setActiveTab('overview')}
-              >
-                Overview
-              </button>
-              <button 
-                className={`tab-btn ${activeTab === 'meta' ? 'active' : ''}`}
-                onClick={() => setActiveTab('meta')}
-              >
-                Meta Tags
-              </button>
-              <button 
-                className={`tab-btn ${activeTab === 'content' ? 'active' : ''}`}
-                onClick={() => setActiveTab('content')}
-              >
-                Content
-              </button>
-              <button 
-                className={`tab-btn ${activeTab === 'technical' ? 'active' : ''}`}
-                onClick={() => setActiveTab('technical')}
-              >
-                Technical
-              </button>
-              <button 
-                className={`tab-btn ${activeTab === 'recommendations' ? 'active' : ''}`}
-                onClick={() => setActiveTab('recommendations')}
-              >
-                Recommendations
-                <span className="rec-count">{analysis.recommendations.length}</span>
-              </button>
-            </div>
-
-            {/* Tab Content */}
-            <div className="tab-container">
-              {activeTab === 'overview' && renderOverviewTab()}
-              {activeTab === 'meta' && renderMetaTab()}
-              {activeTab === 'content' && renderContentTab()}
-              {activeTab === 'technical' && renderTechnicalTab()}
-              {activeTab === 'recommendations' && renderRecommendationsTab()}
-            </div>
-
-            {/* Export Button */}
-            <div className="results-actions">
-              <button 
-                className="export-btn"
-                onClick={() => {
-                  const dataStr = JSON.stringify(analysis, null, 2);
-                  const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-                  const exportFileDefaultName = `seo-analysis-${new Date().toISOString().split('T')[0]}.json`;
-                  const linkElement = document.createElement('a');
-                  linkElement.setAttribute('href', dataUri);
-                  linkElement.setAttribute('download', exportFileDefaultName);
-                  linkElement.click();
-                }}
-              >
-                Export Analysis (JSON)
-              </button>
-            </div>
-          </div>
-        )}
+        </div>
       </main>
 
       <footer className="app-footer">
-        <p>© 2025 SEO Analyzer - Improve your website's search rankings</p>
+        <p>© 2025 SEO Analyzer - Powered by Benbo</p>
       </footer>
     </div>
   );
+};
+
+// Main App Component
+function App() {
+  const [analysis, setAnalysis] = useState(null);
+
+  const handleAnalysis = (data) => {
+    setAnalysis(data);
+    window.scrollTo(0, 0);
+  };
+
+  const handleNewAnalysis = () => {
+    setAnalysis(null);
+    window.scrollTo(0, 0);
+  };
+
+  // If we have analysis results, show the results page
+  if (analysis) {
+    return <ResultsPage analysis={analysis} onNewAnalysis={handleNewAnalysis} />;
+  }
+
+  // Otherwise, show the landing page
+  return <LandingPage onAnalyze={handleAnalysis} />;
 }
 
 export default App;
