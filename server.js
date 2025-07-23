@@ -643,15 +643,13 @@ if (fs.existsSync(buildPath)) {
 }
 
 // Landing page route
-app.get('/', (req, res) => {
-  const landingPath = path.join(__dirname, 'client/public/index.html');
-  if (fs.existsSync(landingPath)) {
-    res.sendFile(landingPath);
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api')) {
+    res.status(404).json({ error: 'API endpoint not found' });
+  } else if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
   } else {
-    res.json({ 
-      error: 'Landing page not found',
-      message: 'Please make sure index.html exists in client/public directory'
-    });
+    res.status(404).json({ error: 'React app not built' });
   }
 });
 
