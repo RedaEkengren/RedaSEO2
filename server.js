@@ -766,7 +766,7 @@ app.get('/results', (req, res) => {
 
 // Final catch‑all – MUST be the very last route
 // `/{*splat}` also matches the root path `/`
-app.get('/{*splat}', (req, res) => {
+app.get('/*', (req, res) => {
      if (req.path.startsWith('/api')) {
        return res.status(404).json({ error: 'API endpoint not found' });
      }
@@ -780,6 +780,10 @@ app.get('/{*splat}', (req, res) => {
 // START THE SERVER
 // -------------------
 const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 SEO Analyzer running on port ${PORT}`);
+});
 
 app.listen(PORT, () => {
   console.log(`🚀 SEO Analyzer running on port ${PORT}`);
