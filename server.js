@@ -4,7 +4,10 @@ const cheerio = require('cheerio');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
+
+// RateLimit
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 
 const app = express();
 
@@ -17,25 +20,22 @@ app.use(express.json());
 
 // Rate limiter med KORREKT IP-detektering för Cloudflare/DigitalOcean
 const analyzeRateLimit = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 24 timmar
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
   max: 10, // 10 analyser per IP
   
   // CUSTOM keyGenerator som tar FÖRSTA IP från x-forwarded-for
-  keyGenerator: (req) => {
-    const forwardedFor = req.headers['x-forwarded-for'];
-    let clientIP;
+  keyGenerator: (req, res) => {
+    // pick the first IP from x‑forwarded‑for, or fall back
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientIP = forwarded
+      ? forwarded.split(',')[0].trim()
+      : req.ip;
     
-    if (forwardedFor) {
-      // Ta första IP från kommaseparerad lista (före Cloudflare IP)
-      clientIP = forwardedFor.split(',')[0].trim();
-    } else {
-      clientIP = req.ip || req.connection.remoteAddress;
-    }
-    
-    console.log(`🔑 Rate limit key: ${clientIP} (from x-forwarded-for: ${forwardedFor})`);
-    return clientIP;
+    req.ip = clientIP;
+    console.log(`🔑 Rate limit key: ${clientIP}`);
+    // Delegate to the IPv6‑safe helper
+    return ipKeyGenerator(req, res);
   },
-  
   message: { error: 'Du har nått dagens gräns på 10 analyser. Försök igen imorgon!' },
   standardHeaders: true,
   legacyHeaders: false,
