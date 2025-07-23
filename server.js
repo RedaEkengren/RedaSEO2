@@ -643,7 +643,7 @@ if (fs.existsSync(buildPath)) {
 }
 
 // Landing page route
-app.get('*', (req, res) => {
+app.get('/*', (req, res) => { … });
   if (req.path.startsWith('/api')) {
     res.status(404).json({ error: 'API endpoint not found' });
   } else if (fs.existsSync(indexPath)) {
